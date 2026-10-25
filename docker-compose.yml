@@ -1,17 +1,15 @@
-version: "3.9"
 services:
   api:
     build: ./backend
-    container_name: forex_api
-    ports:
-      - "8000:8000"
     environment:
-      - PYTHONUNBUFFERED=1
+      COINGECKO_API_KEY: ${COINGECKO_API_KEY:-}
+      PYTHONUNBUFFERED: "1"
     restart: unless-stopped
 
   frontend:
     build: ./frontend
-    container_name: forex_frontend
+    depends_on:
+      - api
     ports:
       - "80:80"
     restart: unless-stopped

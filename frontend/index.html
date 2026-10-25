@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#080d12" />
+    <meta name="description" content="Live crypto market monitoring with Isolation Forest anomaly detection." />
+    <title>DomainFree — Market Signal</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <aside class="sidebar">
+      <a class="brand" href="/"><span class="brand-mark"><i></i><i></i><i></i></span>domainfree<span class="green">.</span></a>
+      <p class="nav-label">WORKSPACE</p>
+      <a class="nav-item active" href="#overview"><span>◫</span>Market overview</a>
+      <a class="nav-item" href="#signals"><span>⌁</span>Anomaly signals <b id="nav-alert-count">0</b></a>
+      <div class="sidebar-bottom">
+        <div class="model-card">
+          <div class="model-label"><i></i> DETECTION MODEL</div>
+          <strong>Isolation Forest</strong>
+          <small>Unsupervised · 240 point window</small>
+          <div class="meter"><i></i></div>
+          <div class="model-state">MODEL STATUS <b id="model-status">WARMING UP</b></div>
+        </div>
+        <div class="profile"><span>DF</span><div><b>Market workspace</b><small>Free tier</small></div><i>···</i></div>
+      </div>
+    </aside>
+    <main id="overview">
+      <header class="topbar">
+        <div class="breadcrumb">Workspace <i>/</i> <b>Market overview</b></div>
+        <div class="top-right">
+          <div class="connection" id="connection-status"><i></i><span id="connection-label">CONNECTING</span></div>
+          <button id="sound-toggle" class="icon-button" aria-label="Enable sound alerts" title="Sound alerts">♩</button>
+          <span class="avatar">DF</span>
+        </div>
+      </header>
+      <section class="page-heading">
+        <div><div class="eyebrow"><i></i> REAL-TIME INTELLIGENCE</div><h1>Market signal<span class="green">.</span></h1><p>A clearer view of what moves the market.</p></div>
+        <div class="heading-meta"><span id="feed-pill" class="feed-pill">↗ <b id="feed-label">DEMO FEED</b></span><span class="updated">LAST UPDATE<strong id="last-updated">—</strong></span></div>
+      </section>
+      <section class="stats">
+        <article class="stat"><label>ASSETS TRACKED <span>◈</span></label><strong id="tracked-count">00 <small>assets</small></strong><p>Across major crypto markets</p></article>
+        <article class="stat"><label>ANOMALIES DETECTED <span class="orange">⌁</span></label><strong id="anomaly-count">0 <small>active</small></strong><p><i class="green-dot"></i> Signals in the current window</p></article>
+        <article class="stat"><label>MARKET SENTIMENT <span>◒</span></label><strong id="market-sentiment">Neutral</strong><p><span class="sentiment-bars">▮▮▮▯▯</span> Based on 24h performance</p></article>
+        <article class="stat"><label>STREAM HEALTH <span class="green">⌁</span></label><strong><span id="stream-health">—</span> <small>updates / min</small></strong><p><i class="green-dot"></i> Live feed throughput</p></article>
+      </section>
+      <section class="panel market">
+        <header class="panel-head"><div><h2>Tracked assets <small id="asset-total">00</small></h2><p>Live prices and anomaly signals</p></div><button id="view-signals">View signals <span>↗</span></button></header>
+        <div class="table-wrap">
+          <table><thead><tr><th>ASSET</th><th>PRICE</th><th>24H CHANGE</th><th>LAST MOVEMENT</th><th>VOLUME (24H)</th><th>SIGNAL</th></tr></thead><tbody id="asset-rows"></tbody></table>
+          <div class="empty" id="empty-assets"><i></i>Waiting for the first market update…</div>
+        </div>
+        <footer class="table-footer"><span><i></i> Market data updates as it happens</span><span id="asset-footer">— assets monitored</span></footer>
+      </section>
+      <div class="lower">
+        <section class="panel chart">
+          <header class="panel-head"><div><h2>Price movement <small id="selected-token">BTC / USD</small></h2><p>Live price trace · anomaly markers</p></div><div class="chart-tools"><select id="asset-select" aria-label="Select asset"></select><span>LIVE</span></div></header>
+          <div class="chart-metrics"><strong id="chart-price">—</strong><span id="chart-change">Waiting for data</span></div>
+          <div class="chart-box"><canvas id="price-chart" aria-label="Live price chart"></canvas></div>
+          <footer class="legend"><span><i></i> Price</span><span><b></b> Anomaly</span><span id="chart-range">—</span></footer>
+        </section>
+        <section class="panel signals" id="signals">
+          <header class="panel-head"><div><h2>Signal feed <small class="live-tag"><i></i> LIVE</small></h2><p>Unusual market behavior</p></div><button class="dots" aria-label="Signal options">···</button></header>
+          <div id="signal-list" class="signal-list"><div class="all-clear"><i>✓</i><b>All clear</b><span>Unusual activity will appear here.</span></div></div>
+          <footer class="signal-footer"><span>Powered by Isolation Forest</span><span>IF · 0.1</span></footer>
+        </section>
+      </div>
+      <footer class="page-footer"><span>DOMAINFREE <i>·</i> MARKET INTELLIGENCE</span><span>Data provided by CoinGecko · Not financial advice</span></footer>
+    </main>
+    <div id="toast" role="status" class="toast"></div>
+    <script src="/app.js" defer></script>
+  </body>
+</html>
