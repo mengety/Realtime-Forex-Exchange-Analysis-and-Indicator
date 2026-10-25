@@ -1,199 +1,345 @@
-const IDS = ["bitcoin", "ethereum", "solana", "ripple", "binancecoin", "dogecoin"];
-const history = new Map(IDS.map((id) => [id, []]));
-const assets = new Map();
-const alerts = [];
-const $ = (selector) => document.querySelector(selector);
-let selected = "bitcoin";
+const PAIRS = ["EUR/USD", "USD/JPY", "EUR/JPY"];
+const bars = new Map(PAIRS.map((pair) => [pair, []]));
+const liveTicks = new Map();
+const predictions = new Map();
+let selectedPair = PAIRS[0];
 let socket;
-let retryMs = 1000;
-let minuteUpdates = 0;
-let soundOn = false;
-let audioContext;
-let toastTimer;
+let retryDelay = 1000;
+let ticksThisMinute = 0;
+let chartResizeObserver;
 
-function fmtMoney(value) {
-  if (!Number.isFinite(value)) return "—";
-  const digits = value >= 1 ? 2 : 5;
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: digits, maximumFractionDigits: digits }).format(value);
-}
-function compact(value) {
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", notation: "compact", maximumFractionDigits: 2 }).format(value || 0);
-}
-function ago(timestamp) {
-  const seconds = Math.max(0, (Date.now() - new Date(timestamp).getTime()) / 1000 | 0);
-  return seconds < 10 ? "just now" : seconds < 60 ? `${seconds}s ago` : `${Math.floor(seconds / 60)}m ago`;
-}
-function safe(text) {
-  return String(text).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+const $ = (query) => document.querySelector(query);
+const digits = (pair) => pair.endsWith("JPY") ? 3 : 5;
+const formatPrice = (pair, price) => Number.isFinite(Number(price))
+  ? Number(price).toFixed(digits(pair))
+  : "—";
+const pairSlug = (pair) => pair.replace("/", "");
+const selectedBars = () => bars.get(selectedPair);
+const selectedTick = () => liveTicks.get(selectedPair);
+
+function socketUrl() {
+  const scheme = location.protocol === "https:" ? "wss:" : "ws:";
+  return `${scheme}//${location.host}/ws/market`;
 }
 function connect() {
-  socket = new WebSocket(`${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/ws/market`);
-  socket.addEventListener("open", () => { retryMs = 1000; status("connecting"); });
+  socket = new WebSocket(socketUrl());
+  socket.addEventListener("open", () => {
+    retryDelay = 1000;
+    setConnection("connected");
+  });
   socket.addEventListener("message", ({ data }) => {
-    try { onMessage(JSON.parse(data)); } catch (error) { console.error("Invalid market message", error); }
+    try {
+      onMessage(JSON.parse(data));
+    } catch (error) {
+      console.error("Invalid forex stream message", error);
+    }
   });
   socket.addEventListener("close", () => {
-    status("reconnecting");
-    setTimeout(connect, retryMs);
-    retryMs = Math.min(retryMs * 2, 30000);
+    setConnection("reconnecting");
+    window.setTimeout(connect, retryDelay);
+    retryDelay = Math.min(retryDelay * 2, 30000);
   });
   socket.addEventListener("error", () => socket.close());
 }
 function onMessage(message) {
-  if (message.type === "status") return status(message.status);
   if (message.type === "snapshot") {
-    status(message.status);
-    feed(message.feed);
-    (message.assets || []).forEach(renderAsset);
-    if (message.last_update) $("#last-updated").textContent = ago(message.last_update);
-  } else if (message.type === "tick" && message.asset) renderAsset(message.asset);
-}
-function status(value) {
-  $("#connection-status").className = `connection ${value}`;
-  $("#connection-label").textContent = value === "live" ? "LIVE" : value === "demo" ? "DEMO MODE" : value.toUpperCase();
-}
-function feed(value) {
-  const isLive = value === "coingecko";
-  $("#feed-label").textContent = isLive ? "COINGECKO LIVE" : "DEMO FEED";
-  $("#feed-pill").className = `feed-pill ${isLive ? "real" : "demo"}`;
-}
-function renderAsset(asset) {
-  if (!history.has(asset.id)) return;
-  assets.set(asset.id, asset);
-  const points = history.get(asset.id);
-  points.push({ price: asset.price, anomaly: asset.anomaly, timestamp: asset.timestamp });
-  if (points.length > 120) points.shift();
-  if (asset.anomaly) addAlert(asset);
-  renderTable();
-  renderStats();
-  renderSignals();
-  if (selected === asset.id) drawChart();
-  $("#last-updated").textContent = ago(asset.timestamp);
-  $("#stream-health").textContent = ++minuteUpdates;
-  if (assets.size === 6) $("#model-status").textContent = "ACTIVE";
-}
-const MARKS = { bitcoin: "₿", ethereum: "◆", solana: "≋", ripple: "✕", binancecoin: "✦", dogecoin: "Ð" };
-const COLOR_CLASS = { bitcoin: "btc", ethereum: "eth", solana: "sol", ripple: "xrp", binancecoin: "bnb", dogecoin: "doge" };
-function sparkline(points, positive) {
-  const values = points.slice(-20).map((point) => point.price);
-  if (!values.length) return "—";
-  const min = Math.min(...values), span = Math.max(...values) - min || 1;
-  const coords = values.map((v, i) => `${i / Math.max(1, values.length - 1) * 60},${18 - (v - min) / span * 15}`).join(" ");
-  return `<svg viewBox="0 0 60 20" class="spark ${positive ? "" : "down"}"><polyline points="${coords}"/></svg>`;
-}
-function renderTable() {
-  $("#empty-assets").hidden = assets.size > 0;
-  $("#asset-rows").innerHTML = IDS.filter((id) => assets.has(id)).map((id) => {
-    const a = assets.get(id), points = history.get(id);
-    const movement = points[0]?.price ? (a.price / points[0].price - 1) * 100 : a.change_24h;
-    return `<tr data-id="${id}" class="${selected === id ? "selected" : ""}">
-      <td><div class="asset"><i class="coin ${COLOR_CLASS[id]}">${MARKS[id]}</i><span><b>${safe(a.name)}</b><small>${safe(a.symbol)} <i>/</i> USD</small></span></div></td>
-      <td class="price">${fmtMoney(a.price)}</td><td class="${a.change_24h >= 0 ? "positive" : "negative"}">${a.change_24h >= 0 ? "+" : ""}${a.change_24h.toFixed(2)}%</td>
-      <td>${sparkline(points, movement >= 0)}</td><td class="volume">${compact(a.volume_24h)}</td>
-      <td><span class="badge ${a.anomaly ? "alert" : "normal"}"><i></i>${a.anomaly ? "Anomaly" : "Normal"}</span></td></tr>`;
-  }).join("");
-  $("#asset-rows").querySelectorAll("tr").forEach((row) => row.addEventListener("click", () => choose(row.dataset.id)));
-  $("#tracked-count").innerHTML = `${String(assets.size).padStart(2, "0")} <small>assets</small>`;
-  $("#asset-total").textContent = String(assets.size).padStart(2, "0");
-  $("#asset-footer").textContent = `${assets.size} assets monitored`;
-  const select = $("#asset-select");
-  const available = IDS.filter((id) => assets.has(id));
-  if (select.options.length !== available.length) {
-    select.innerHTML = available.map((id) => `<option value="${id}">${assets.get(id).symbol} / USD</option>`).join("");
-    if (!available.includes(selected)) selected = available[0];
-    select.value = selected;
+    setConnection(message.status);
+    PAIRS.forEach((pair) => {
+      bars.set(pair, message.candles?.[pair] || []);
+      const tick = message.ticks?.find((item) => item.pair === pair);
+      if (tick) {
+        liveTicks.set(pair, tick);
+        updateLiveBar(pair, tick);
+      }
+      if (message.predictions?.[pair]) predictions.set(pair, message.predictions[pair]);
+    });
+    if (message.last_update) $("#last-updated").textContent = new Date(message.last_update).toLocaleTimeString();
+    updateInfrastructure(message.status, message);
+    render();
+  } else if (message.type === "status") {
+    setConnection(message.status);
+    updateInfrastructure(message.status, {});
+  } else if (message.type === "tick" && PAIRS.includes(message.tick?.pair)) {
+    liveTicks.set(message.tick.pair, message.tick);
+    ticksThisMinute += 1;
+    $("#tick-count").textContent = ticksThisMinute;
+    $("#last-updated").textContent = new Date(message.tick.timestamp).toLocaleTimeString();
+    updateLiveBar(message.tick.pair, message.tick);
+    renderPairs();
+    if (message.tick.pair === selectedPair) {
+      updatePriceAndOhlc();
+      drawChart();
+    }
+  } else if (message.type === "candle" && PAIRS.includes(message.candle?.pair)) {
+    appendCandle(message.candle);
+    $("#kafka-dot").className = "good";
+    $("#pipeline-state").textContent = "SPARK LIVE";
+    if (message.candle.pair === selectedPair) {
+      renderAnalysis();
+      drawChart();
+    }
+  } else if (message.type === "prediction" && PAIRS.includes(message.prediction?.pair)) {
+    predictions.set(message.prediction.pair, message.prediction);
+    renderPairs();
+    if (message.prediction.pair === selectedPair) {
+      renderPrediction();
+      drawChart();
+    }
   }
 }
-function renderStats() {
-  const active = alerts.filter((item) => Date.now() - item.receivedAt < 60000).length;
-  $("#anomaly-count").innerHTML = `${active} <small>active</small>`;
-  $("#nav-alert-count").textContent = active;
-  const values = [...assets.values()].map((item) => item.change_24h);
-  const avg = values.length ? values.reduce((x, y) => x + y, 0) / values.length : 0;
-  const sentiment = avg > .75 ? "Bullish" : avg < -.75 ? "Bearish" : "Neutral";
-  $("#market-sentiment").textContent = sentiment;
-  $("#market-sentiment").className = `sentiment ${sentiment.toLowerCase()}`;
+function setConnection(status) {
+  const el = $("#connection");
+  el.className = `connection ${status}`;
+  const labels = {
+    connected: "CONNECTED",
+    live: "LIVE",
+    missing_credentials: "PRACTICE ACCOUNT REQUIRED",
+    pipeline_unavailable: "PIPELINE OFFLINE",
+    provider_error: "PROVIDER ERROR",
+    reconnecting: "RECONNECTING",
+    connecting: "CONNECTING",
+  };
+  $("#connection-label").textContent = labels[status] || String(status).toUpperCase();
 }
-function choose(id) {
-  selected = id;
-  if ($("#asset-select").value !== id) $("#asset-select").value = id;
-  renderTable();
+function updateInfrastructure(status, snapshot) {
+  const providerReady = ["live", "connected"].includes(status);
+  $("#provider-dot").className = providerReady ? "good" : status === "provider_error" ? "bad" : "";
+  $("#provider-state").textContent = status === "missing_credentials" ? "ADD TOKEN" : providerReady ? "LIVE" : "WAITING";
+  const pipelineReady = Boolean(snapshot.kafka);
+  $("#kafka-dot").className = pipelineReady ? "good" : "";
+  $("#pipeline-state").textContent = snapshot.last_candle
+    ? "SPARK LIVE"
+    : pipelineReady ? "KAFKA LIVE" : "STARTING";
+  const readyModels = [...predictions.values()].filter((item) => item.training_samples >= 30).length;
+  $("#model-dot").className = readyModels === PAIRS.length ? "good" : "";
+  $("#model-state").textContent = readyModels === 0
+    ? "WARMING"
+    : `${readyModels}/${PAIRS.length} READY`;
+  $("#feed-pill").className = `feed-pill ${providerReady ? "real" : ""}`;
+}
+function bucketStart(timestamp) {
+  const date = new Date(timestamp);
+  return Math.floor(date.getTime() / 60000) * 60000;
+}
+function updateLiveBar(pair, tick) {
+  const pairBars = bars.get(pair);
+  const start = bucketStart(tick.timestamp);
+  const last = pairBars[pairBars.length - 1];
+  if (last && new Date(last.timestamp).getTime() === start && last.provisional) {
+    if (last.last_tick_timestamp === tick.timestamp) return;
+    last.high = Math.max(Number(last.high), tick.price);
+    last.low = Math.min(Number(last.low), tick.price);
+    last.close = tick.price;
+    last.tick_count = Number(last.tick_count || 0) + 1;
+    last.last_tick_timestamp = tick.timestamp;
+  } else if (last && new Date(last.timestamp).getTime() === start) {
+    return;
+  } else {
+    pairBars.push({
+      pair,
+      timestamp: new Date(start).toISOString(),
+      open: tick.price,
+      high: tick.price,
+      low: tick.price,
+      close: tick.price,
+      tick_count: 1,
+      last_tick_timestamp: tick.timestamp,
+      provisional: true,
+    });
+  }
+  if (pairBars.length > 300) pairBars.splice(0, pairBars.length - 300);
+}
+function appendCandle(candle) {
+  const pairBars = bars.get(candle.pair);
+  const timestamp = new Date(candle.timestamp).getTime();
+  const existing = pairBars.findIndex((item) => new Date(item.timestamp).getTime() === timestamp);
+  const clean = { ...candle, provisional: false };
+  if (existing >= 0) pairBars[existing] = clean;
+  else pairBars.push(clean);
+  pairBars.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+  if (pairBars.length > 300) pairBars.splice(0, pairBars.length - 300);
+}
+function choosePair(pair) {
+  if (!PAIRS.includes(pair)) return;
+  selectedPair = pair;
+  renderPairs();
+  render();
+}
+function priceChange(pair) {
+  const history = bars.get(pair);
+  if (history.length < 2) return null;
+  const first = Number(history[Math.max(0, history.length - 20)].close);
+  const last = Number(history.at(-1).close);
+  return (last / first - 1) * 100;
+}
+function renderPairs() {
+  $("#pair-grid").innerHTML = PAIRS.map((pair) => {
+    const tick = liveTicks.get(pair);
+    const prediction = predictions.get(pair);
+    const change = priceChange(pair);
+    const direction = prediction?.status === "active" ? prediction.direction : "WARMING";
+    const dClass = direction === "UP" ? "up" : direction === "DOWN" ? "down" : "neutral";
+    return `<button class="pair-card ${pair === selectedPair ? "selected" : ""}" data-pair="${pair}">
+      <span class="pair-name">${pair.split("/").join(" / ")} <i>${pair.endsWith("JPY") ? "JPY quote" : "USD quote"}</i></span>
+      <strong>${tick ? formatPrice(pair, tick.price) : "—"}</strong>
+      <span class="pair-bottom"><span class="${change == null ? "" : change >= 0 ? "positive" : "negative"}">${change == null ? "Waiting for candles" : `${change >= 0 ? "+" : ""}${change.toFixed(3)}% · recent bars`}</span><b class="direction ${dClass}">${direction}</b></span>
+    </button>`;
+  }).join("");
+  $("#pair-grid").querySelectorAll("[data-pair]").forEach((button) => button.addEventListener("click", () => choosePair(button.dataset.pair)));
+}
+function render() {
+  $("#chart-pair").innerHTML = `${selectedPair.replace("/", " / ")} <small class="timeframe">1 MIN</small>`;
+  renderPairs();
+  updatePriceAndOhlc();
+  renderPrediction();
+  renderAnalysis();
   drawChart();
+  renderSession();
 }
-function drawChart() {
-  const canvas = $("#price-chart"), ctx = canvas.getContext("2d"), rect = canvas.getBoundingClientRect();
-  if (!rect.width || !rect.height) return;
-  const ratio = devicePixelRatio || 1;
-  canvas.width = rect.width * ratio; canvas.height = rect.height * ratio;
-  ctx.scale(ratio, ratio);
-  const w = rect.width, h = rect.height, points = history.get(selected), asset = assets.get(selected);
-  ctx.clearRect(0, 0, w, h);
-  $("#selected-token").textContent = `${asset?.symbol || "BTC"} / USD`;
-  if (!points.length) return;
-  const values = points.map((p) => p.price), min = Math.min(...values), max = Math.max(...values);
-  const pad = Math.max((max - min) * .18, max * .0003), low = min - pad, high = max + pad;
-  const x = (i) => 16 + i / Math.max(1, points.length - 1) * (w - 32);
-  const y = (v) => 10 + (high - v) / (high - low) * (h - 22);
-  ctx.strokeStyle = "#1b292d"; ctx.lineWidth = 1;
-  for (let i = 0; i < 4; i++) { const gy = 10 + i / 3 * (h - 22); ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(w, gy); ctx.stroke(); }
-  const gradient = ctx.createLinearGradient(0, 0, 0, h);
-  gradient.addColorStop(0, "rgba(96,221,157,.18)"); gradient.addColorStop(1, "rgba(96,221,157,0)");
-  ctx.beginPath(); points.forEach((p, i) => i ? ctx.lineTo(x(i), y(p.price)) : ctx.moveTo(x(i), y(p.price)));
-  ctx.lineTo(x(points.length - 1), h); ctx.lineTo(x(0), h); ctx.closePath(); ctx.fillStyle = gradient; ctx.fill();
-  ctx.beginPath(); points.forEach((p, i) => i ? ctx.lineTo(x(i), y(p.price)) : ctx.moveTo(x(i), y(p.price)));
-  ctx.strokeStyle = "#68dfa3"; ctx.lineWidth = 2; ctx.stroke();
-  points.forEach((p, i) => {
-    if (!p.anomaly) return;
-    ctx.beginPath(); ctx.arc(x(i), y(p.price), 4, 0, Math.PI * 2); ctx.fillStyle = "#ff806c"; ctx.fill();
-    ctx.strokeStyle = "#10171a"; ctx.lineWidth = 2; ctx.stroke();
-  });
-  $("#chart-price").textContent = fmtMoney(asset?.price);
-  const change = asset?.change_24h || 0;
-  $("#chart-change").textContent = `${change >= 0 ? "▲" : "▼"} ${Math.abs(change).toFixed(2)}% today`;
-  $("#chart-change").className = `chart-change ${change >= 0 ? "positive" : "negative"}`;
-  $("#chart-range").textContent = points.length < 2 ? "Collecting data…" : `${points.length} recent ticks`;
-}
-function addAlert(asset) {
-  const previous = alerts[0];
-  if (previous?.id === asset.id && Date.now() - previous.receivedAt < 5000) return;
-  alerts.unshift({ ...asset, receivedAt: Date.now() });
-  if (alerts.length > 20) alerts.pop();
-  if (soundOn) playSound();
-  toast(`${asset.symbol} anomaly detected`);
-}
-function renderSignals() {
-  if (!alerts.length) {
-    $("#signal-list").innerHTML = `<div class="all-clear"><i>✓</i><b>All clear</b><span>Unusual activity will appear here.</span></div>`;
+function updatePriceAndOhlc() {
+  const tick = selectedTick();
+  const pairBars = selectedBars();
+  const current = pairBars.at(-1);
+  $("#current-price").textContent = tick ? formatPrice(selectedPair, tick.price) : "—";
+  if (!current) {
+    $("#ohlc-line").textContent = "O —   H —   L —   C —";
     return;
   }
-  $("#signal-list").innerHTML = alerts.slice(0, 6).map((a) => `<article class="signal-item"><i>!</i><div><header><b>${safe(a.symbol)} unusual movement</b><time>${ago(a.timestamp)}</time></header><p>Price or volume behavior fell outside the model's normal pattern.</p><footer><span class="badge alert"><i></i>ANOMALY</span><small>Score ${Number(a.anomaly_score || 0).toFixed(3)}</small></footer></div></article>`).join("");
+  $("#ohlc-line").innerHTML = `O ${formatPrice(selectedPair, current.open)} <i>H ${formatPrice(selectedPair, current.high)}</i> <b>L ${formatPrice(selectedPair, current.low)}</b> C ${formatPrice(selectedPair, current.close)}`;
 }
-function playSound() {
-  audioContext ||= new AudioContext();
-  const oscillator = audioContext.createOscillator(), gain = audioContext.createGain();
-  oscillator.frequency.value = 660; gain.gain.setValueAtTime(.07, audioContext.currentTime);
-  gain.gain.exponentialRampToValueAtTime(.001, audioContext.currentTime + .3);
-  oscillator.connect(gain); gain.connect(audioContext.destination); oscillator.start(); oscillator.stop(audioContext.currentTime + .3);
-}
-function toast(text) {
-  const el = $("#toast"); el.textContent = text; el.classList.add("show");
-  clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove("show"), 2400);
-}
-$("#asset-select").addEventListener("change", (event) => choose(event.target.value));
-$("#view-signals").addEventListener("click", () => $("#signals").scrollIntoView({ behavior: "smooth", block: "center" }));
-$("#sound-toggle").addEventListener("click", (event) => {
-  soundOn = !soundOn; event.currentTarget.classList.toggle("enabled", soundOn);
-  event.currentTarget.setAttribute("aria-label", soundOn ? "Mute sound alerts" : "Enable sound alerts");
-  if (soundOn) audioContext ||= new AudioContext();
-  toast(soundOn ? "Sound alerts enabled" : "Sound alerts muted");
-});
-addEventListener("resize", drawChart);
-setInterval(() => { minuteUpdates = 0; }, 60000);
-setInterval(() => {
-  if (assets.size) {
-    const latest = [...assets.values()].at(-1);
-    $("#last-updated").textContent = ago(latest.timestamp);
-    renderStats();
+function renderPrediction() {
+  const prediction = predictions.get(selectedPair);
+  $("#training-count").innerHTML = `${prediction?.training_samples || 0} <small>bars</small>`;
+  $("#training-note").textContent = `${selectedPair} · 30 labeled bars to activate`;
+  const chip = $("#prediction-chip");
+  const arrow = $("#forecast-arrow");
+  if (!prediction || prediction.status !== "active") {
+    chip.className = "prediction-chip";
+    chip.textContent = "MODEL WARMING UP";
+    arrow.className = "forecast-arrow";
+    arrow.textContent = "—";
+    $("#predicted-close").textContent = "—";
+    $("#confidence").textContent = "—";
+    $("#confidence-meter").style.width = "0%";
+    $("#forecast-foot").textContent = `Needs ${Math.max(0, 30 - (prediction?.training_samples || 0))} more labeled candles for ${selectedPair}.`;
+    return;
   }
-}, 5000);
+  const up = prediction.direction === "UP";
+  chip.className = `prediction-chip ${up ? "up" : "down"}`;
+  chip.textContent = `MODEL ${prediction.direction} · ${Math.round(prediction.confidence * 100)}%`;
+  arrow.className = `forecast-arrow ${up ? "up" : "down"}`;
+  arrow.textContent = up ? "↑" : "↓";
+  $("#predicted-close").textContent = formatPrice(selectedPair, prediction.predicted_close);
+  $("#confidence").textContent = `${(prediction.confidence * 100).toFixed(1)}%`;
+  $("#confidence-meter").style.width = `${Math.min(100, Math.max(0, prediction.confidence * 100))}%`;
+  $("#forecast-foot").textContent = `${prediction.direction} estimate for the next 1-minute candle · ${prediction.training_samples} labeled bars trained.`;
+}
+function renderAnalysis() {
+  const pairBars = selectedBars();
+  if (!pairBars.length) {
+    $("#rsi-value").textContent = "—";
+    $("#rsi-label").textContent = "Waiting for bars";
+    $("#sma-value").textContent = "—";
+    $("#range-value").textContent = "—";
+    $("#spread-value").textContent = "—";
+    $("#bar-count").textContent = "0 bars";
+    return;
+  }
+  const closes = pairBars.map((bar) => Number(bar.close)).filter(Number.isFinite);
+  const latest = pairBars.at(-1);
+  const sample = closes.slice(-15);
+  const changes = sample.slice(1).map((value, index) => value - sample[index]);
+  const gains = changes.filter((value) => value > 0).reduce((sum, value) => sum + value, 0) / Math.max(1, changes.length);
+  const losses = changes.filter((value) => value < 0).reduce((sum, value) => sum - value, 0) / Math.max(1, changes.length);
+  const rsi = losses === 0 ? gains > 0 ? 100 : 50 : 100 - 100 / (1 + gains / losses);
+  const smaValues = closes.slice(-20);
+  const sma = smaValues.reduce((sum, value) => sum + value, 0) / smaValues.length;
+  const candleRange = Number(latest.high) - Number(latest.low);
+  $("#rsi-value").textContent = rsi.toFixed(1);
+  $("#rsi-label").textContent = rsi >= 70 ? "Potentially overbought" : rsi <= 30 ? "Potentially oversold" : "Neutral momentum";
+  $("#sma-value").textContent = formatPrice(selectedPair, sma);
+  $("#range-value").textContent = formatPrice(selectedPair, candleRange);
+  $("#spread-value").textContent = formatPrice(selectedPair, Number(latest.average_spread || 0));
+  $("#bar-count").textContent = `${closes.length} bars`;
+  const model = predictions.get(selectedPair);
+  $("#training-count").innerHTML = `${model?.training_samples || 0} <small>bars</small>`;
+}
+function drawChart() {
+  const canvas = $("#candle-chart");
+  const ctx = canvas.getContext("2d");
+  const rect = canvas.getBoundingClientRect();
+  if (!rect.width || !rect.height) return;
+  const ratio = window.devicePixelRatio || 1;
+  canvas.width = Math.round(rect.width * ratio);
+  canvas.height = Math.round(rect.height * ratio);
+  ctx.scale(ratio, ratio);
+  const width = rect.width, height = rect.height;
+  ctx.clearRect(0, 0, width, height);
+  const all = selectedBars().slice(-90);
+  const prediction = predictions.get(selectedPair);
+  $("#chart-empty").hidden = all.length > 0;
+  if (!all.length) return;
+  const prices = all.flatMap((bar) => [Number(bar.high), Number(bar.low)]);
+  if (prediction?.status === "active") prices.push(Number(prediction.predicted_close));
+  let min = Math.min(...prices), max = Math.max(...prices);
+  if (!Number.isFinite(min) || !Number.isFinite(max)) return;
+  const pad = Math.max((max - min) * 0.12, max * 0.00012);
+  min -= pad; max += pad;
+  const left = 12, right = width - 70, top = 15, bottom = height - 22;
+  const chartWidth = Math.max(1, right - left), chartHeight = Math.max(1, bottom - top);
+  const y = (value) => top + (max - value) / (max - min) * chartHeight;
+  const step = chartWidth / all.length;
+  const candleWidth = Math.max(2, Math.min(12, step * 0.62));
+
+  ctx.font = '9px "DM Mono", monospace';
+  ctx.textAlign = "right";
+  ctx.lineWidth = 1;
+  for (let line = 0; line <= 4; line++) {
+    const value = min + (max - min) * (line / 4);
+    const gy = y(value);
+    ctx.strokeStyle = "#1b292d";
+    ctx.beginPath(); ctx.moveTo(left, gy); ctx.lineTo(right, gy); ctx.stroke();
+    ctx.fillStyle = "#73817b";
+    ctx.fillText(formatPrice(selectedPair, value), width - 6, gy + 3);
+  }
+  all.forEach((bar, index) => {
+    const x = left + step * index + step / 2;
+    const open = Number(bar.open), close = Number(bar.close);
+    const high = Number(bar.high), low = Number(bar.low);
+    if (![open, close, high, low].every(Number.isFinite)) return;
+    const rising = close >= open;
+    const color = rising ? "#62d99b" : "#ff806c";
+    ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x, y(high)); ctx.lineTo(x, y(low)); ctx.stroke();
+    const bodyTop = Math.min(y(open), y(close));
+    const bodyHeight = Math.max(1, Math.abs(y(open) - y(close)));
+    ctx.fillRect(x - candleWidth / 2, bodyTop, candleWidth, bodyHeight);
+  });
+  if (prediction?.status === "active") {
+    const py = y(Number(prediction.predicted_close));
+    ctx.strokeStyle = prediction.direction === "UP" ? "#66dca2" : "#ff806c";
+    ctx.setLineDash([5, 4]);
+    ctx.beginPath(); ctx.moveTo(left, py); ctx.lineTo(right + 3, py); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = prediction.direction === "UP" ? "#66dca2" : "#ff806c";
+    ctx.textAlign = "left";
+    ctx.fillText(`${prediction.direction} ${formatPrice(selectedPair, prediction.predicted_close)}`, right + 7, py - 5);
+  }
+  const first = new Date(all[0].timestamp);
+  const last = new Date(all.at(-1).timestamp);
+  ctx.fillStyle = "#73817b"; ctx.textAlign = "left";
+  ctx.fillText(first.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), left, height - 5);
+  ctx.textAlign = "right";
+  ctx.fillText(last.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), right, height - 5);
+}
+function renderSession() {
+  const hour = new Date().getUTCHours();
+  const session = hour >= 0 && hour < 8 ? "Tokyo" : hour >= 7 && hour < 16 ? "London" : hour >= 12 && hour < 21 ? "New York" : "Closed";
+  const open = new Date().getUTCDay() % 6 !== 0;
+  $("#market-session").textContent = open ? session : "Weekend";
+  $("#session-note").textContent = open ? "UTC session estimate" : "Forex market closed";
+}
+window.addEventListener("resize", drawChart);
+window.setInterval(() => { ticksThisMinute = 0; $("#tick-count").textContent = "0"; }, 60000);
+render();
 connect();

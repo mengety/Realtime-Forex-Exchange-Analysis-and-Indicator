@@ -4,73 +4,73 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#080d12" />
-    <meta name="description" content="Live crypto market monitoring with Isolation Forest anomaly detection." />
-    <title>DomainFree — Market Signal</title>
+    <meta name="description" content="Live EUR/USD, USD/JPY and EUR/JPY forex charts with online machine-learning analysis." />
+    <title>DomainFree — Forex Signal</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/styles.css?v=forex3" />
   </head>
   <body>
     <aside class="sidebar">
       <a class="brand" href="/"><span class="brand-mark"><i></i><i></i><i></i></span>domainfree<span class="green">.</span></a>
       <p class="nav-label">WORKSPACE</p>
-      <a class="nav-item active" href="#overview"><span>◫</span>Market overview</a>
-      <a class="nav-item" href="#signals"><span>⌁</span>Anomaly signals <b id="nav-alert-count">0</b></a>
+      <a class="nav-item active" href="#overview"><span>◫</span>Forex overview</a>
+      <a class="nav-item" href="#analysis"><span>⌁</span>Model analysis</a>
       <div class="sidebar-bottom">
-        <div class="model-card">
-          <div class="model-label"><i></i> DETECTION MODEL</div>
-          <strong>Isolation Forest</strong>
-          <small>Unsupervised · 240 point window</small>
-          <div class="meter"><i></i></div>
-          <div class="model-state">MODEL STATUS <b id="model-status">WARMING UP</b></div>
+        <div class="pipeline-card">
+          <div class="small-label">LIVE DATA PIPELINE</div>
+          <div class="pipeline-row"><i id="provider-dot"></i><span>OANDA practice</span><b id="provider-state">WAITING</b></div>
+          <div class="pipeline-row"><i id="kafka-dot"></i><span>Kafka → Spark</span><b id="pipeline-state">STARTING</b></div>
+          <div class="pipeline-row"><i id="model-dot"></i><span>Online model</span><b id="model-state">WARMING</b></div>
+          <p>Forex quotes · EUR / USD / JPY</p>
         </div>
-        <div class="profile"><span>DF</span><div><b>Market workspace</b><small>Free tier</small></div><i>···</i></div>
+        <div class="profile"><span>DF</span><div><b>Forex workspace</b><small>Live market signals</small></div></div>
       </div>
     </aside>
     <main id="overview">
       <header class="topbar">
-        <div class="breadcrumb">Workspace <i>/</i> <b>Market overview</b></div>
-        <div class="top-right">
-          <div class="connection" id="connection-status"><i></i><span id="connection-label">CONNECTING</span></div>
-          <button id="sound-toggle" class="icon-button" aria-label="Enable sound alerts" title="Sound alerts">♩</button>
-          <span class="avatar">DF</span>
-        </div>
+        <div class="breadcrumb">Workspace <i>/</i> <b>Forex overview</b></div>
+        <div class="top-right"><div class="connection" id="connection"><i></i><span id="connection-label">CONNECTING</span></div><span class="avatar">FX</span></div>
       </header>
       <section class="page-heading">
-        <div><div class="eyebrow"><i></i> REAL-TIME INTELLIGENCE</div><h1>Market signal<span class="green">.</span></h1><p>A clearer view of what moves the market.</p></div>
-        <div class="heading-meta"><span id="feed-pill" class="feed-pill">↗ <b id="feed-label">DEMO FEED</b></span><span class="updated">LAST UPDATE<strong id="last-updated">—</strong></span></div>
+        <div><div class="eyebrow"><i></i> REAL-TIME FOREX INTELLIGENCE</div><h1>Forex signal<span class="green">.</span></h1><p>Streaming EUR and JPY markets, cleaned and learned as they move.</p></div>
+        <div class="heading-meta"><span class="feed-pill" id="feed-pill">↗ <b>OANDA PRACTICE</b></span><span class="updated">LAST QUOTE<strong id="last-updated">—</strong></span></div>
       </section>
       <section class="stats">
-        <article class="stat"><label>ASSETS TRACKED <span>◈</span></label><strong id="tracked-count">00 <small>assets</small></strong><p>Across major crypto markets</p></article>
-        <article class="stat"><label>ANOMALIES DETECTED <span class="orange">⌁</span></label><strong id="anomaly-count">0 <small>active</small></strong><p><i class="green-dot"></i> Signals in the current window</p></article>
-        <article class="stat"><label>MARKET SENTIMENT <span>◒</span></label><strong id="market-sentiment">Neutral</strong><p><span class="sentiment-bars">▮▮▮▯▯</span> Based on 24h performance</p></article>
-        <article class="stat"><label>STREAM HEALTH <span class="green">⌁</span></label><strong><span id="stream-health">—</span> <small>updates / min</small></strong><p><i class="green-dot"></i> Live feed throughput</p></article>
+        <article class="stat"><label>PAIRS TRACKED <span>◈</span></label><strong>03 <small>pairs</small></strong><p>EUR/USD · USD/JPY · EUR/JPY</p></article>
+        <article class="stat"><label>STREAM THROUGHPUT <span class="green">⌁</span></label><strong><span id="tick-count">0</span> <small>ticks / min</small></strong><p><i class="green-dot"></i> Market quotes through Kafka</p></article>
+        <article class="stat"><label>MODEL TRAINING <span>⌁</span></label><strong id="training-count">0 <small>bars</small></strong><p id="training-note">Learning from closed candles</p></article>
+        <article class="stat"><label>MARKET SESSION <span>◷</span></label><strong id="market-session">—</strong><p id="session-note">Forex market status</p></article>
       </section>
-      <section class="panel market">
-        <header class="panel-head"><div><h2>Tracked assets <small id="asset-total">00</small></h2><p>Live prices and anomaly signals</p></div><button id="view-signals">View signals <span>↗</span></button></header>
-        <div class="table-wrap">
-          <table><thead><tr><th>ASSET</th><th>PRICE</th><th>24H CHANGE</th><th>LAST MOVEMENT</th><th>VOLUME (24H)</th><th>SIGNAL</th></tr></thead><tbody id="asset-rows"></tbody></table>
-          <div class="empty" id="empty-assets"><i></i>Waiting for the first market update…</div>
-        </div>
-        <footer class="table-footer"><span><i></i> Market data updates as it happens</span><span id="asset-footer">— assets monitored</span></footer>
+      <section class="panel watchlist">
+        <header class="panel-head"><div><h2>Currency pairs <small>USD · EUR · JPY only</small></h2><p>Live quotes and model direction</p></div><span class="right-note">SELECT A PAIR TO ANALYSE <b>⌄</b></span></header>
+        <div class="pair-grid" id="pair-grid"></div>
+        <footer class="table-footer"><span><i></i> Practice-account prices · max 4 updates/sec per instrument</span><span>Source: OANDA v20</span></footer>
       </section>
-      <div class="lower">
-        <section class="panel chart">
-          <header class="panel-head"><div><h2>Price movement <small id="selected-token">BTC / USD</small></h2><p>Live price trace · anomaly markers</p></div><div class="chart-tools"><select id="asset-select" aria-label="Select asset"></select><span>LIVE</span></div></header>
-          <div class="chart-metrics"><strong id="chart-price">—</strong><span id="chart-change">Waiting for data</span></div>
-          <div class="chart-box"><canvas id="price-chart" aria-label="Live price chart"></canvas></div>
-          <footer class="legend"><span><i></i> Price</span><span><b></b> Anomaly</span><span id="chart-range">—</span></footer>
-        </section>
-        <section class="panel signals" id="signals">
-          <header class="panel-head"><div><h2>Signal feed <small class="live-tag"><i></i> LIVE</small></h2><p>Unusual market behavior</p></div><button class="dots" aria-label="Signal options">···</button></header>
-          <div id="signal-list" class="signal-list"><div class="all-clear"><i>✓</i><b>All clear</b><span>Unusual activity will appear here.</span></div></div>
-          <footer class="signal-footer"><span>Powered by Isolation Forest</span><span>IF · 0.1</span></footer>
-        </section>
-      </div>
-      <footer class="page-footer"><span>DOMAINFREE <i>·</i> MARKET INTELLIGENCE</span><span>Data provided by CoinGecko · Not financial advice</span></footer>
+      <section class="panel chart-panel">
+        <header class="panel-head chart-head">
+          <div><h2 id="chart-pair">EUR / USD <small class="timeframe">1 MIN</small></h2><p>Live one-minute candlesticks · model prediction overlay</p></div>
+          <div class="chart-right"><span class="chart-live"><i></i> LIVE</span><span class="price-now" id="current-price">—</span></div>
+        </header>
+        <div class="chart-info"><span id="ohlc-line">O — <i>H —</i> <b>L —</b> C —</span><span id="prediction-chip" class="prediction-chip">MODEL WARMING UP</span></div>
+        <div class="chart-wrap"><canvas id="candle-chart" aria-label="Forex candlestick chart with next candle prediction"></canvas><div id="chart-empty" class="chart-empty"><i></i><b>Waiting for live forex quotes</b><span>Set OANDA practice credentials to start the feed.</span></div></div>
+        <footer class="chart-legend"><span><i class="legend-up"></i> Bull candle</span><span><i class="legend-down"></i> Bear candle</span><span><b class="legend-pred"></b> Next 1-min model estimate</span><span id="bar-count">—</span></footer>
+      </section>
+      <section class="analysis-grid" id="analysis">
+        <article class="panel analysis-card">
+          <header class="panel-head"><div><h2>One-candle forecast</h2><p>Online SGD classifier · retrained on each Spark candle</p></div><span id="forecast-arrow" class="forecast-arrow">—</span></header>
+          <div class="forecast-main"><div><span class="small-label">PREDICTED NEXT CLOSE</span><strong id="predicted-close">—</strong></div><div><span class="small-label">MODEL CONFIDENCE</span><strong id="confidence">—</strong></div></div>
+          <div class="confidence-track"><i id="confidence-meter"></i></div>
+          <p class="forecast-foot" id="forecast-foot">Model needs 30 labeled candles per pair before showing a direction.</p>
+        </article>
+        <article class="panel analysis-card">
+          <header class="panel-head"><div><h2>Technical context</h2><p>Calculated from clean one-minute OHLC candles</p></div><span class="tech-live"><i></i> SPARK</span></header>
+          <div class="technicals"><div><span>RSI · 14</span><b id="rsi-value">—</b><small id="rsi-label">Waiting for bars</small></div><div><span>SMA · 20</span><b id="sma-value">—</b><small>Simple moving average</small></div><div><span>LAST BAR RANGE</span><b id="range-value">—</b><small>High − low</small></div><div><span>AVG SPREAD</span><b id="spread-value">—</b><small>Bid/ask spread</small></div></div>
+        </article>
+      </section>
+      <footer class="page-footer"><span>DOMAINFREE <i>·</i> FOREX MARKET INTELLIGENCE</span><span>Data: OANDA practice · Kafka · Spark · HDFS · Forecasts are experimental, not financial advice</span></footer>
     </main>
-    <div id="toast" role="status" class="toast"></div>
-    <script src="/app.js" defer></script>
+    <script src="/app.js?v=forex3" defer></script>
   </body>
 </html>

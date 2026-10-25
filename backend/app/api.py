@@ -3,35 +3,52 @@ from __future__ import annotations
 import asyncio
 import logging
 from contextlib import asynccontextmanager, suppress
+from typing import Any
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
-from .market import MarketFeed
+from .market import ForexFeed
 
 logging.basicConfig(level=logging.INFO)
-feed = MarketFeed()
+feed = ForexFeed()
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    worker = asyncio.create_task(feed.run())
+    tasks = [
+        asyncio.create_task(feed.run(), name="forex-provider"),
+        asyncio.create_task(feed.consume_candles(), name="spark-candles"),
+    ]
     try:
         yield
     finally:
-        worker.cancel()
-        with suppress(asyncio.CancelledError):
-            await worker
+        for task in tasks:
+            task.cancel()
+        for task in tasks:
+            with suppress(asyncio.CancelledError):
+                await task
+        await feed.close()
 
 
-app = FastAPI(title="DomainFree Market Anomaly API", lifespan=lifespan)
+app = FastAPI(title="DomainFree Forex Signal", lifespan=lifespan)
 
 
 @app.get("/api/health")
-async def health() -> dict[str, str | None]:
+async def health() -> dict[str, Any]:
     return {
         "status": feed.status,
-        "feed": feed.feed_label,
+        "provider": "OANDA practice",
+        "pairs": feed.snapshot()["pairs"],
         "last_update": feed.last_update,
+        "last_candle": feed.last_candle,
+        "kafka": feed.producer is not None,
+        "spark_model": {
+            pair: {
+                "trained_samples": model.training_samples,
+                "ready": model.training_samples >= 30,
+            }
+            for pair, model in feed.models.items()
+        },
     }
 
 
